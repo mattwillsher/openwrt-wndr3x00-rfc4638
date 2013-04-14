@@ -1,0 +1,84 @@
+RFC 4638 support means that a full 1500-octet frame can be transmitted
+through a PPPoE tunnel.  For this to work, the network card must support
+baby-jumbo frames of 1508 octets plus headers.  This patch enables the use
+of MTUs up to 1518 octets (derived from the existing AG71XX_TX_MTU_LEN
+value by subtracting header sizes).
+
+The default MTU size is unchanged; if large frames are desired, ifconfig
+must be used to set the new MTU.
+
+Signed-off-by: Robert Bradley <robert.bradley1 at gmail.com>
+---
+ .../files/drivers/net/ethernet/atheros/ag71xx/ag71xx.h | 17 ++++++++++++++++-
+ .../drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c  | 18 +++++++++++++++++-
+ 2 files changed, 33 insertions(+), 2 deletions(-)
+
+diff --git a/target/linux/ar71xx/files/drivers/net/ethernet/atheros/ag71xx/ag71xx.h
+b/target/linux/ar71xx/files/drivers/net/ethernet/atheros/ag71xx/ag71xx.h
+index b9d95ad..7f77a59 100644
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx.h
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx.h
+@@ -51,8 +51,23 @@
+ #define AG71XX_INT_INIT	(AG71XX_INT_ERR | AG71XX_INT_POLL)
+
+ #define AG71XX_TX_MTU_LEN	1540
++/*
++ * AG71XX_MAX_DATA_LEN equals the maximum possible MTU that a frame of length
++ * AG71XX_TX_MTU_LEN can have.  This may be larger than ETH_DATA_LEN!  This
++ * define is necessary for baby jumbo packet support (as per RFC 4638).
++ *
++ * Redefining this as ETH_DATA_LEN restores the 1500-octet MTU limit.
++ */
++#define AG71XX_MAX_DATA_LEN	\
++	(AG71XX_TX_MTU_LEN - (ETH_FCS_LEN + VLAN_HLEN + ETH_HLEN))
++/*
++ * Define AG71XX_RX_PKT_SIZE using AG71XX_MAX_DATA_LEN + ETH_HLEN rather than
++ * ETH_FRAME_LEN so that baby jumbo frames can be used safely.  This definition
++ * means that setting AG71XX_MAX_DATA_LEN to ETH_DATA_LEN restores the old
++ * values, which are safe for standard frames.
++ */
+ #define AG71XX_RX_PKT_SIZE	\
+-	(ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN)
++	(AG71XX_MAX_DATA_LEN + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN)
+ #define AG71XX_RX_BUF_SIZE (AG71XX_RX_PKT_SIZE + NET_SKB_PAD + NET_IP_ALIGN)
+
+ #define AG71XX_TX_RING_SIZE_DEFAULT	64
+diff --git a/target/linux/ar71xx/files/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c
+b/target/linux/ar71xx/files/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c
+index fb99d27..d3e850b 100644
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c
+@@ -1042,13 +1042,29 @@ static void ag71xx_netpoll(struct net_device *dev)
+ }
+ #endif
+
++/*
++ * ag71xx_change_mtu: set interface MTU.
++ * A modified eth_change_mtu, changing the upper limit from ETH_DATA_LEN to
++ * AG71XX_MAX_DATA_LEN.  This means that baby jumbo packets may be used by
++ * PPPoE users, assuming that AG71XX_MAX_DATA_LEN > ETH_DATA_LEN.
++ *
++ * Returns 0 on success, -EINVAL otherwise.
++ */
++static int ag71xx_change_mtu(struct net_device *dev, int new_mtu)
++{
++	if (new_mtu < 68 || new_mtu > AG71XX_MAX_DATA_LEN)
++			return -EINVAL;
++	dev->mtu = new_mtu;
++	return 0;
++}
++
+ static const struct net_device_ops ag71xx_netdev_ops = {
+ 	.ndo_open		= ag71xx_open,
+ 	.ndo_stop		= ag71xx_stop,
+ 	.ndo_start_xmit		= ag71xx_hard_start_xmit,
+ 	.ndo_do_ioctl		= ag71xx_do_ioctl,
+ 	.ndo_tx_timeout		= ag71xx_tx_timeout,
+-	.ndo_change_mtu		= eth_change_mtu,
++	.ndo_change_mtu		= ag71xx_change_mtu,
+ 	.ndo_set_mac_address	= eth_mac_addr,
+ 	.ndo_validate_addr	= eth_validate_addr,
+ #ifdef CONFIG_NET_POLL_CONTROLLER
+--
+Robert Bradley
+
