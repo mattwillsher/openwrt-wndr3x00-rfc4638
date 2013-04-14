@@ -1,3 +1,7 @@
+Modified to change patch paths for direct inclusion in OpenWRT build process
+Matt Willsher <matt at monki.org.uk>
+---
+
 RFC 4638 support means that a full 1500-octet frame can be transmitted
 through a PPPoE tunnel.  For this to work, the network card must support
 baby-jumbo frames of 1508 octets plus headers.  This patch enables the use
